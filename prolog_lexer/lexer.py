@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from .modelos import EntradaLexema, ErrorLexico, Resultado, Token
 
 SIMBOLOS = {
@@ -17,6 +19,10 @@ SIMBOLOS_ORDENADOS = sorted(SIMBOLOS, key=len, reverse=True)
 PALABRAS_OPERADORAS = {"is": "OP_IS", "mod": "OP_MOD"}
 REGISTRABLES = {"ATOMO", "VARIABLE", "VARIABLE_ANONIMA", "ENTERO", "REAL", "CADENA"}
 ESCAPES = {"\\", "'", '"', "n", "r", "t"}
+ESPACIO_EN_BLANCO = " \t\r\n"
+FIN_DE_LINEA = "\r\n"
+
+Posicion = tuple[int, int, int]
 
 
 def es_letra(c: str) -> bool:
@@ -69,6 +75,28 @@ class Lexer:
     def coincide(self, texto: str) -> bool:
         return self.texto.startswith(texto, self.pos)
 
+    def origen(self) -> Posicion:
+        """Devuelve el índice y coordenadas del carácter actual."""
+        return self.pos, self.linea, self.columna
+
+    def avanzar_mientras(self, condicion: Callable[[str], bool]) -> None:
+        while condicion(self.actual()):
+            self.avanzar()
+
+    def registrar_lexema(self, tipo: str, lexema: str) -> int | None:
+        if tipo not in REGISTRABLES:
+            return None
+
+        clave = (tipo, lexema)
+        indice = self.indices.get(clave)
+
+        if indice is None:
+            indice = len(self.resultado.lexemas)
+            self.indices[clave] = indice
+            self.resultado.lexemas.append(EntradaLexema(indice, tipo, lexema))
+
+        return indice
+
     def emitir(
         self,
         tipo: str,
@@ -77,18 +105,7 @@ class Lexer:
         columna: int,
     ) -> None:
         lexema = self.texto[inicio:self.pos]
-        indice = None
-
-        if tipo in REGISTRABLES:
-            clave = (tipo, lexema)
-
-            if clave not in self.indices:
-                self.indices[clave] = len(self.resultado.lexemas)
-                self.resultado.lexemas.append(
-                    EntradaLexema(self.indices[clave], tipo, lexema)
-                )
-
-            indice = self.indices[clave]
+        indice = self.registrar_lexema(tipo, lexema)
 
         self.resultado.tokens.append(
             Token(tipo, lexema, linea, columna, indice)
@@ -118,8 +135,7 @@ class Lexer:
         linea: int,
         columna: int,
     ) -> None:
-        while es_continuacion(self.actual()):
-            self.avanzar()
+        self.avanzar_mientras(es_continuacion)
 
         lexema = self.texto[inicio:self.pos]
 
@@ -140,8 +156,7 @@ class Lexer:
         linea: int,
         columna: int,
     ) -> None:
-        while es_digito(self.actual()):
-            self.avanzar()
+        self.avanzar_mientras(es_digito)
 
         tipo = "ENTERO"
 
@@ -149,12 +164,10 @@ class Lexer:
             tipo = "REAL"
             self.avanzar()
 
-            while es_digito(self.actual()):
-                self.avanzar()
+            self.avanzar_mientras(es_digito)
 
         if es_letra(self.actual()) or self.actual() == "_":
-            while es_continuacion(self.actual()):
-                self.avanzar()
+            self.avanzar_mientras(es_continuacion)
 
             self.error(
                 "NUMERO_MAL_FORMADO",
@@ -179,7 +192,7 @@ class Lexer:
 
         self.avanzar()
 
-        while self.actual() and self.actual() not in "\r\n":
+        while self.actual() and self.actual() not in FIN_DE_LINEA:
             c = self.actual()
 
             if c == comilla:
@@ -252,54 +265,55 @@ class Lexer:
         self.avanzar()
         self.avanzar()
 
+    def comentario_linea(self) -> None:
+        self.avanzar_mientras(lambda caracter: caracter not in FIN_DE_LINEA)
+
+    def simbolo(self, inicio: int, linea: int, columna: int) -> bool:
+        for texto in SIMBOLOS_ORDENADOS:
+            if self.coincide(texto):
+                for _ in texto:
+                    self.avanzar()
+
+                self.emitir(SIMBOLOS[texto], inicio, linea, columna)
+                return True
+
+        return False
+
+    def analizar_unidad(self) -> None:
+        inicio, linea, columna = self.origen()
+        c = self.actual()
+
+        if c in ESPACIO_EN_BLANCO:
+            self.avanzar()
+
+        elif c == "%":
+            self.comentario_linea()
+
+        elif self.coincide("/*"):
+            self.comentario_bloque(inicio, linea, columna)
+
+        elif c in "'\"":
+            self.entre_comillas(inicio, linea, columna)
+
+        elif es_letra(c) or c == "_":
+            self.identificador(inicio, linea, columna)
+
+        elif es_digito(c):
+            self.numero(inicio, linea, columna)
+
+        elif not self.simbolo(inicio, linea, columna):
+            self.avanzar()
+            self.error(
+                "CARACTER_NO_ADMITIDO",
+                "Carácter no admitido",
+                inicio,
+                linea,
+                columna,
+            )
+
     def analizar(self) -> Resultado:
         while self.actual():
-            inicio = self.pos
-            linea = self.linea
-            columna = self.columna
-            c = self.actual()
-
-            if c in " \t\r\n":
-                self.avanzar()
-
-            elif c == "%":
-                while self.actual() and self.actual() not in "\r\n":
-                    self.avanzar()
-
-            elif self.coincide("/*"):
-                self.comentario_bloque(inicio, linea, columna)
-
-            elif c in "'\"":
-                self.entre_comillas(inicio, linea, columna)
-
-            elif es_letra(c) or c == "_":
-                self.identificador(inicio, linea, columna)
-
-            elif es_digito(c):
-                self.numero(inicio, linea, columna)
-
-            else:
-                for simbolo in SIMBOLOS_ORDENADOS:
-                    if self.coincide(simbolo):
-                        for _ in simbolo:
-                            self.avanzar()
-
-                        self.emitir(
-                            SIMBOLOS[simbolo],
-                            inicio,
-                            linea,
-                            columna,
-                        )
-                        break
-                else:
-                    self.avanzar()
-                    self.error(
-                        "CARACTER_NO_ADMITIDO",
-                        "Carácter no admitido",
-                        inicio,
-                        linea,
-                        columna,
-                    )
+            self.analizar_unidad()
 
         return self.resultado
 
