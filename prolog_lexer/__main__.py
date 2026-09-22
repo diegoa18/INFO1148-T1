@@ -1,11 +1,17 @@
 import argparse
 import sys
-from .lexer import analizar
-
+from .lexer import Lexer
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Analizador léxico de Prolog para INFO1148")
     parser.add_argument("archivo", help="Archivo fuente UTF-8")
+    parser.add_argument(
+        "--grafo",
+        nargs="?",
+        const="flujo_automata",
+        default=None,
+        help="Genera un diagrama PNG del flujo del autómata (opcional: especifica el nombre del archivo)",
+    )
     args = parser.parse_args()
 
     try:
@@ -15,7 +21,13 @@ def main() -> int:
         print(f"Error de entrada: {error}", file=sys.stderr)
         return 2
 
-    resultado = analizar(texto)
+    nombre_test = args.archivo.rsplit(".", 1)[0]
+    nombre_unico = nombre_test.rsplit("/", 1)[-1]
+
+    exportar = args.grafo is not None
+
+    lexer = Lexer(texto, nombre_unico, exportar_grafos=exportar)
+    resultado = lexer.analizar()
 
     print("TOKENS")
     for token in resultado.tokens:

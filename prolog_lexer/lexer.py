@@ -1,6 +1,7 @@
 from collections.abc import Callable
 
 from .modelos import EntradaLexema, ErrorLexico, Resultado, Token
+from .visualizador import generar_grafo_completo
 
 SIMBOLOS = {
     ":-": "OP_REGLA", "?-": "OP_CONSULTA",
@@ -38,13 +39,30 @@ def es_continuacion(c: str) -> bool:
 
 
 class Lexer:
-    def __init__(self, texto: str):
+    def __init__(self, texto: str, nombre_unico: str = "default", exportar_grafos: bool = False):
         self.texto = texto
+        self.nombre_unico = nombre_unico
         self.pos = 0
         self.linea = 1
         self.columna = 1
         self.resultado = Resultado([], [], [])
         self.indices: dict[tuple[str, str], int] = {}
+
+        # --- CONTROL DE GRAFOS INDIVIDUALES ---
+        self.exportar_grafos = exportar_grafos
+        self.contador_tokens = 1  # Índice n para el nombre de la imagen
+        self.estado_actual = "q0"
+        self.contador_estados = 0
+        self.historial_transiciones: list[tuple[str, str, str]] = []
+
+    def nuevo_estado(self, prefijo: str = "q") -> str:
+        self.contador_estados += 1
+        return f"{prefijo}{self.contador_estados}"
+
+    def reset_transiciones(self) -> None:
+        self.estado_actual = "q0"
+        self.contador_estados = 0
+        self.historial_transiciones = []
 
     def actual(self, desplazamiento: int = 0) -> str:
         pos = self.pos + desplazamiento
@@ -53,8 +71,16 @@ class Lexer:
     def avanzar(self) -> None:
         c = self.actual()
 
-        if not c:
-            return
+        if not c: return
+
+        # Registrar transición local para el token actual
+        siguiente_estado = self.nuevo_estado()
+        simbolo_etiqueta = repr(c)[1:-1] if c in "\r\n\t" else c
+        
+        self.historial_transiciones.append(
+            (self.estado_actual, simbolo_etiqueta, siguiente_estado)
+        )
+        self.estado_actual = siguiente_estado
 
         self.pos += 1
 
@@ -111,6 +137,21 @@ class Lexer:
             Token(tipo, lexema, linea, columna, indice)
         )
 
+        # GENERAR EL GRAFO ÚNICAMENTE SI SE EMITE UN TOKEN REGISTRADO
+        if self.exportar_grafos and self.historial_transiciones and indice is not None:
+            # Usamos el índice único del lexema asignado por registrar_lexema
+            nombre_archivo = f"grafo_{indice}"
+            generar_grafo_completo(
+                self.historial_transiciones, 
+                lexema, 
+                tipo, 
+                nombre_archivo,
+                self.nombre_unico
+            )
+
+        # REINICIAR inmediatamente el estado para el siguiente lexema
+        self.reset_transiciones()
+
     def error(
         self,
         codigo: str,
@@ -128,6 +169,7 @@ class Lexer:
                 columna,
             )
         )
+        self.reset_transiciones()
 
     def identificador(
         self,
@@ -283,14 +325,19 @@ class Lexer:
         inicio, linea, columna = self.origen()
         c = self.actual()
 
+        self.reset_transiciones()
+
         if c in ESPACIO_EN_BLANCO:
             self.avanzar()
+            self.reset_transiciones()
 
         elif c == "%":
             self.comentario_linea()
+            self.reset_transiciones()
 
         elif self.coincide("/*"):
             self.comentario_bloque(inicio, linea, columna)
+            self.reset_transiciones()
 
         elif c in "'\"":
             self.entre_comillas(inicio, linea, columna)
@@ -318,5 +365,5 @@ class Lexer:
         return self.resultado
 
 
-def analizar(texto: str) -> Resultado:
-    return Lexer(texto).analizar()
+def analizar(texto: str, exportar_grafos: bool = False) -> Resultado:
+    return Lexer(texto, exportar_grafos=exportar_grafos).analizar()
