@@ -53,5 +53,5 @@ def generar_grafo_completo(
     # Renderizar imagen (genera archivo grafo_1.png, grafo_2.png, etc.)
     ruta_actual = os.path.dirname(os.path.abspath(__file__))
     carpeta_grafos = os.path.join(ruta_actual, "grafos")
-    ruta_salida = os.path.join(carpeta_grafos, f"{nombre_archivo}_{nombre_unico}.png")
+    ruta_salida = os.path.join(carpeta_grafos, f"{nombre_archivo}_{nombre_unico}")
     dot.render(ruta_salida, cleanup=True)
