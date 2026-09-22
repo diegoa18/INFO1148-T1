@@ -21,6 +21,16 @@ Para ver diagnósticos y recuperación ante errores:
 python3 -m prolog_lexer ejemplos/con_errores.pl
 ```
 
+Para generar los grafos de los lexemas, agregar la flag: --grafo yes:
+
+```bash
+python3 -m prolog_lexer ejemplos/con_errores.pl --grafo yes
+```
+
+```bash
+python3 -m prolog_lexer ejemplos/valido.pl --grafo yes
+```
+
 La salida estándar contiene `TOKENS` y `TABLA DE LEXEMAS`. Los errores se escriben en la salida de error. El proceso termina con código `0` si no hay errores léxicos, `1` si los hay y `2` si no se pudo leer el archivo.
 
 ## Pruebas
